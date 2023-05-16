@@ -17,7 +17,7 @@ proc-macro = true
 [dependencies]
 manyhow = { version = "0.4.2", default-features = false }
 proc-macro-utils = "0.8.0"
-proc-macro2 = "1"
+proc-macro2 = "1.0.8"
 quote = "1"
 
 [package.metadata.docs.rs]
