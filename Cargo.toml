@@ -1,0 +1,41 @@
+[package]
+name = "forr"
+version = "0.1.0"
+edition = "2021"
+categories = ["rust-patterns", "development-tools::procedural-macro-helpers"]
+description = "a compile time for loop for code generation"
+keywords = ["macros", "meta-programming", "macro_rules", "code-generation"]
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/ModProg/forr"
+documentation = "https://docs.rs/forr"
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+proc-macro = true
+
+[dependencies]
+manyhow = { version = "0.4.2", default-features = false }
+proc-macro-utils = "0.8.0"
+proc-macro2 = "1"
+quote = "1"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[[package.metadata.release.pre-release-replacements]]
+file = "CHANGELOG.md"
+search = '## \[Unreleased\]'
+replace = """
+<!-- ## [Unreleased] -->
+## [{{version}}] - {{date}}\
+"""
+
+[[package.metadata.release.pre-release-replacements]]
+file = "CHANGELOG.md"
+search = '\[unreleased\]: (.*)/(v.*)\.\.\.HEAD'
+replace = """
+[unreleased]: $1/{{tag_name}}...HEAD
+[{{version}}]: $1/$2...{{tag_name}}\
+"""
