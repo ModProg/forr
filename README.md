@@ -1,11 +1,13 @@
-## forr
+### forr
 
 [![CI Status](https://github.com/ModProg/forr/actions/workflows/test.yaml/badge.svg)](https://github.com/ModProg/forr/actions/workflows/test.yaml)
 [![Crates.io](https://img.shields.io/crates/v/forr)](https://crates.io/crates/forr)
 [![Docs.rs](https://img.shields.io/crates/v/template?color=informational&label=docs.rs)](https://docs.rs/forr)
 [![Documentation for `main`](https://img.shields.io/badge/docs-main-informational)](https://modprog.github.io/forr/forr/)
 
-A for loop in compile time
+[Control flow](#iff) and [loops](#forr) in compile time.
+
+### `forr!`
 
 Aims to replace single use [`macro_rules!`](https://doc.rust-lang.org/reference/macros-by-example.html) for the purpose to repeating code.
 
@@ -59,7 +61,7 @@ tuple variants actually requires less code. But it took me quite a few more
 trys getting it to work correctly. (If you don't count me implementing this
 whole library for the first one.)
 
-## Usage
+### Usage
 
 The first part of the invocation is the pattern, similar to a normal `for`
 loop in rust. Here you can use either a [single
@@ -71,14 +73,14 @@ before or after, currently that includes only [`:idx`](#idx).
 This is followed by the keyword `in`, an array literal `[...]` containing
 the tokens to iterate and the [body](#body) marked with either `$*` or `$:`.
 
-### Single variable binding
+#### Single variable binding
 `$` [`name`](#names) `:` [`type`](#types)
 ```rust
 forr! { $val:expr in [1, 2 + 4, 20]
 ```
 `$val` will be `1`, `2 + 4` and `20`.
 
-### Tuple binding
+#### Tuple binding
 `(` [`$name:type`](#single-variable-binding), ... `)`
 ```rust
 forr! { ($val:expr, $vbl:ty) in [(1, i32), (Ok(2 + 4), Result<u8, ()>), (20.0, f32)]
@@ -87,7 +89,7 @@ forr! { ($val:expr, $vbl:ty) in [(1, i32), (Ok(2 + 4), Result<u8, ()>), (20.0, f
 
 `$vbl` will be `i32`, `Result<u8, ()>` and `f32`.
 
-### Non consuming patterns
+#### Non consuming patterns
 
 Non consuming patterns can be specified before or after the consuming
 patterns or inside if using a tuple binding.
@@ -106,7 +108,7 @@ forr! { ($val:expr, $i:idx, $vbl:ty) in [(1, i32), (2, i32)]
 
 `$vbl` will be `i32`
 
-### Body
+#### Body
 
 The body can be in two different modes. When it is initialized with `$*` the
 whole body is repeated similar to a normal for loop. Is it started with
@@ -115,7 +117,7 @@ repetition. In both cases there is special handling for [optional
 values](#optional values) when placed inside `$()?` the innermost such group
 is only added if the value is present.
 
-#### `$*` outer repetition
+##### `$*` outer repetition
 
 In the tokens following the `$*` every occurrence of a `$ident` where the
 ident matches one of the declared variables is replaced with the
@@ -132,7 +134,7 @@ assert_eq!("a", "a");
 assert_eq!(true, true);
 ```
 
-#### `$:` inner repetition
+##### `$:` inner repetition
 
 `$:` allows to have non repeated code surrounding the expansion, mainly
 useful for cases where a macro would not be allowed.
@@ -154,29 +156,64 @@ match 1 {
 }
 ```
 
-## Names
+### Names
 Any valid rust idents including keywords can be used to name variables. Note
 that shadowing does not work, i.e. an inner `forr!` needs to use different
 names.
 
-## Types
-### `:expr`
+### Types
+#### `:expr`
 As this uses [`TokenParser::next_expression()`](https://docs.rs/proc-macro-utils/latest/proc_macro_utils/struct.TokenParser.html#method.next_expression) this will allow anything
 that matches the `,` rules for expressions i.e. it cannot contain `;` and no
 `,` outside turbofishes for Types/Generics (`HashMap::<A, B>`).
 
-### `:ty`
+#### `:ty`
 As this uses [`TokenParser::next_type()`](https://docs.rs/proc-macro-utils/latest/proc_macro_utils/struct.TokenParser.html#method.next_type) this will allow anything
 that matches the `,` rules for types i.e. it cannot contain `;` and no
 `,` outside `<>` for Generics (`HashMap<A, B>`) and unopened closing `>`.
 
-### `:tt`
+#### `:tt`
 Currently matches exactly one [`proc_macro::TokenTree`](https://doc.rust-lang.org/beta/proc_macro/enum.TokenTree.html), but the plan is to extend this to what [`macro_rule!`'s `:tt` matches](https://doc.rust-lang.org/reference/macros-by-example.html#metavariables).
 
-### `:inner`
+#### `:inner`
 The most versatile type, allowing arbitrary tokens wrapped by any bracket
 `[`, `{` or `(` ... `)}]`.
 
-### `:idx`
+#### `:idx`
 [Non consuming pattern](#non-consuming-patterns) that will contain the
 current index.
+
+## `iff!`
+
+Aims to be an alternative version of
+[`#[cfg(...)]`](https://doc.rust-lang.org/reference/conditional-compilation.html#the-cfg-attribute)
+able to conditionally enable any rust tokens and being able to, e.g. compare
+tokens, but it is not able to be conditional other actual `cfg` or features.
+
+```rust
+iff! { true && false $:
+    compile_error!("This is not expanded")
+}
+
+iff! { true || false $:
+    compile_error!("This is expanded")
+}
+```
+
+On top of the basic boolean operations (`!`, `&&`, `||`) there are some
+functions:
+
+- `empty(<tokens>)` tests if `<tokens>` is empty.
+- `equals(<lhs>)(<rhs>)` tests if `<lhs>` is equal to `<rhs>`.
+
+```rust
+iff! { empty() $:
+    compile_error!("This is expanded")
+}
+iff! { empty(something) $:
+    compile_error!("This is not expanded")
+}
+iff! { equals(something)(another thing) $:
+    compile_error!("Neither is this")
+}
+```

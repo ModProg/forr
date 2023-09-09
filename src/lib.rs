@@ -1,7 +1,7 @@
 #![warn(clippy::pedantic, missing_docs)]
 #![allow(clippy::wildcard_imports)]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
-//! Control flow and loops in compile time
+//! [Control flow](#iff) and [loops](#forr) in compile time.
 //!
 //! # `forr!`
 //!
