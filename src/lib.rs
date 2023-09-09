@@ -1,7 +1,9 @@
 #![warn(clippy::pedantic, missing_docs)]
 #![allow(clippy::wildcard_imports)]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
-//! A for loop in compile time
+//! Control flow and loops in compile time
+//!
+//! # `forr!`
 //!
 //! Aims to replace single use [`macro_rules!`](https://doc.rust-lang.org/reference/macros-by-example.html) for the purpose to repeating code.
 //!
@@ -54,144 +56,46 @@
 //! trys getting it to work correctly. (If you don't count me implementing this
 //! whole library for the first one.)
 //!
-//! # Usage
-//!
 //! The first part of the invocation is the pattern, similar to a normal `for`
 //! loop in rust. Here you can use either a [single
-//! variable](#single-variable-binding) i.e. `$name:type` or a [tuple
-//! binding](#tuple-binding) `($name:type, $nbme:type, ...)`. There can
-//! optionally be [non consuming patterns](#non-consuming-patterns) specified
-//! before or after, currently that includes only [`:idx`](#idx).
+//! variable](forr!#single-variable-binding) i.e. `$name:type` or a [tuple
+//! binding](forr!#tuple-binding) `($name:type, $nbme:type, ...)`. There can
+//! optionally be [non consuming patterns](forr!#non-consuming-patterns)
+//! specified, currently that includes only [`:idx`](forr!#idx).
 //!
 //! This is followed by the keyword `in`, an array literal `[...]` containing
-//! the tokens to iterate and the [body](#body) marked with either `$*` or `$:`.
+//! the tokens to iterate and the [body](forr!#body) marked with either `$*` or
+//! `$:`.
 //!
-//! ## Single variable binding
-//! `$` [`name`](#names) `:` [`type`](#types)
+//! For more details see [`forr!`].
+//!
+//! # `iff!`
+//!
+//! Aims to be an alternative version of
+//! [`#[cfg(...)]`](https://doc.rust-lang.org/reference/conditional-compilation.html#the-cfg-attribute)
+//! able to conditionally enable any rust tokens and being able to, e.g. compare
+//! tokens, but it is not able to be conditional other actual `cfg` or features.
+//!
 //! ```
-//! # use forr::forr;
-//! forr! { $val:expr in [1, 2 + 4, 20]
-//! # $* assert_eq!($val, $val); }
-//! ```
-//! `$val` will be `1`, `2 + 4` and `20`.
-//!
-//! ## Tuple binding
-//! `(` [`$name:type`](#single-variable-binding), ... `)`
-//! ```
-//! # use forr::forr;
-//! forr! { ($val:expr, $vbl:ty) in [(1, i32), (Ok(2 + 4), Result<u8, ()>), (20.0, f32)]
-//! # $* let a: $vbl = $val; assert_eq!(a, $val); }
-//! ```
-//! `$val` will be `1`, `Ok(2 + 4)` and `20.0`.
-//!
-//! `$vbl` will be `i32`, `Result<u8, ()>` and `f32`.
-//!
-//! ## Non consuming patterns
-//!
-//! Non consuming patterns can be specified before or after the consuming
-//! patterns or inside if using a tuple binding.
-//!
-//! Currently, only [`:idx`](#idx) is supported
-//! ```
-//! # use forr::forr;
-//! forr! { $val:expr, $i:idx in [1, 2]
-//! # $* assert_eq!($i + 1, $val); }
-//! forr! { $i:idx, $val:expr in [1, 2]
-//! # $* assert_eq!($i + 1, $val); }
-//! forr! { $i:idx, ($val:expr, $vbl:ty) in [(1, i32), (2, i32)]
-//! # $* assert_eq!($i + 1, $val); }
-//! forr! { ($val:expr, $vbl:ty), $i:idx in [(1, i32), (2, i32)]
-//! # $* assert_eq!($i + 1, $val); }
-//! forr! { ($val:expr, $i:idx, $vbl:ty) in [(1, i32), (2, i32)]
-//! # $* assert_eq!($i + 1, $val); }
-//! ```
-//! `$val` will be `1` and `2`
-//!
-//! `$i` will be `0` and `1`
-//!
-//! `$vbl` will be `i32`
-//!
-//! ## Body
-//!
-//! The body can be in two different modes. When it is initialized with `$*` the
-//! whole body is repeated similar to a normal for loop. Is it started with
-//! `$:`, the body will behave more like macro expansion using `$()*` for
-//! repetition. In both cases there is special handling for [optional
-//! values](#optional values) when placed inside `$()?` the innermost such group
-//! is only added if the value is present.
-//!
-//! ### `$*` outer repetition
-//!
-//! In the tokens following the `$*` every occurrence of a `$ident` where the
-//! ident matches one of the declared variables is replaced with the
-//! corresponding value.
-//! ```
-//! # use forr::forr;
-//! forr! {$val:expr in [(1, "a", true)] $*
-//!     assert_eq!($val, $val);
+//! # forr::
+//! iff! { true && false $:
+//!     compile_error!("This is not expanded")
 //! }
 //! ```
-//! will expand to
-//! ```
-//! assert_eq!(1, 1);
-//! assert_eq!("a", "a");
-//! assert_eq!(true, true);
-//! ```
-//!
-//! ### `$:` inner repetition
-//!
-//! `$:` allows to have non repeated code surrounding the expansion, mainly
-//! useful for cases where a macro would not be allowed.
-//!
-//! ```
-//! # use forr::forr;
-//! # assert!(!
-//! forr! {($pat:expr, $res:expr) in [(0, true), (1, false), (2.., true)] $:
-//!     match 1u8 {
-//!         $($pat => $res,)*
-//!     }
-//! }
-//! # );
-//! ```
-//! Without the inner repetition this would not be possible, as macros are not
-//! allowed as the body of a `match`.
 //! ```compile_fail
-//! # use forr::forr;
-//! # assert!(!
-//! match 1 {
-//!    forr! {($pat:expr, $res:expr) in [(0, true), (1, false), (2.., true)] $*
-//!        $pat => $res
-//!    }
+//! # forr::
+//! iff! { true || false $:
+//!     compile_error!("This is expanded")
 //! }
-//! # );
 //! ```
 //!
-//! # Names
-//! Any valid rust idents including keywords can be used to name variables. Note
-//! that shadowing does not work, i.e. an inner `forr!` needs to use different
-//! names.
+//! On top of the basic boolean operations (`!`, `&&`, `||`) there are some
+//! functions:
 //!
-//! # Types
-//! ## `:expr`
-//! As this uses [`TokenParser::next_expression()`] this will allow anything
-//! that matches the `,` rules for expressions i.e. it cannot contain `;` and no
-//! `,` outside turbofishes for Types/Generics (`HashMap::<A, B>`).
+//! - `empty(<tokens>)` tests if `<tokens>` is empty.
+//! - `equals(<lhs>)(<rhs>)` tests if `<lhs>` is equal to `<rhs>`.
 //!
-//! ## `:ty`
-//! As this uses [`TokenParser::next_type()`] this will allow anything
-//! that matches the `,` rules for types i.e. it cannot contain `;` and no
-//! `,` outside `<>` for Generics (`HashMap<A, B>`) and unopened closing `>`.
-//!
-//! ## `:tt`
-//! Currently matches exactly one [`proc_macro::TokenTree`], but the plan is to extend this to what [`macro_rule!`'s `:tt` matches](https://doc.rust-lang.org/reference/macros-by-example.html#metavariables).
-//!
-//! ## `:inner`
-//! The most versatile type, allowing arbitrary tokens wrapped by any bracket
-//! `[`, `{` or `(` ... `)}]`.
-//!
-//! ## `:idx`
-//! [Non consuming pattern](#non-consuming-patterns) that will contain the
-//! current index.
+//! For more details see [`iff!`].
 
 use manyhow::manyhow;
 use proc_macro2::token_stream;
@@ -222,6 +126,191 @@ macro_rules! bail_optional_span {
 
 mod forr;
 
-/// Iterates over specified list and expands input similar to macro_rules
+/// Iterates over specified list and expands input similar to macro_rules.
+///
+/// # Usage
+///
+/// The first part of the invocation is the pattern, similar to a normal `for`
+/// loop in rust. Here you can use either a [single
+/// variable](#single-variable-binding) i.e. `$name:type` or a [tuple
+/// binding](#tuple-binding) `($name:type, $nbme:type, ...)`. There can
+/// optionally be [non consuming patterns](#non-consuming-patterns) specified
+/// before or after, currently that includes only [`:idx`](#idx).
+///
+/// This is followed by the keyword `in`, an array literal `[...]` containing
+/// the tokens to iterate and the [body](#body) marked with either `$*` or `$:`.
+///
+/// ## Single variable binding
+/// `$` [`name`](#names) `:` [`type`](#types)
+/// ```
+/// # use forr::forr;
+/// forr! { $val:expr in [1, 2 + 4, 20]
+/// # $* assert_eq!($val, $val); }
+/// ```
+/// `$val` will be `1`, `2 + 4` and `20`.
+///
+/// ## Tuple binding
+/// `(` [`$name:type`](#single-variable-binding), ... `)`
+/// ```
+/// # use forr::forr;
+/// forr! { ($val:expr, $vbl:ty) in [(1, i32), (Ok(2 + 4), Result<u8, ()>), (20.0, f32)]
+/// # $* let a: $vbl = $val; assert_eq!(a, $val); }
+/// ```
+/// `$val` will be `1`, `Ok(2 + 4)` and `20.0`.
+///
+/// `$vbl` will be `i32`, `Result<u8, ()>` and `f32`.
+///
+/// ## Non consuming patterns
+///
+/// Non consuming patterns can be specified before or after the consuming
+/// patterns or inside if using a tuple binding.
+///
+/// Currently, only [`:idx`](#idx) is supported
+/// ```
+/// # use forr::forr;
+/// forr! { $val:expr, $i:idx in [1, 2]
+/// # $* assert_eq!($i + 1, $val); }
+/// forr! { $i:idx, $val:expr in [1, 2]
+/// # $* assert_eq!($i + 1, $val); }
+/// forr! { $i:idx, ($val:expr, $vbl:ty) in [(1, i32), (2, i32)]
+/// # $* assert_eq!($i + 1, $val); }
+/// forr! { ($val:expr, $vbl:ty), $i:idx in [(1, i32), (2, i32)]
+/// # $* assert_eq!($i + 1, $val); }
+/// forr! { ($val:expr, $i:idx, $vbl:ty) in [(1, i32), (2, i32)]
+/// # $* assert_eq!($i + 1, $val); }
+/// ```
+/// `$val` will be `1` and `2`
+///
+/// `$i` will be `0` and `1`
+///
+/// `$vbl` will be `i32`
+///
+/// ## Body
+///
+/// The body can be in two different modes. When it is initialized with `$*` the
+/// whole body is repeated similar to a normal for loop. Is it started with
+/// `$:`, the body will behave more like macro expansion using `$()*` for
+/// repetition. In both cases there is special handling for [optional
+/// values](#optional values) when placed inside `$()?` the innermost such group
+/// is only added if the value is present.
+///
+/// ### `$*` outer repetition
+///
+/// In the tokens following the `$*` every occurrence of a `$ident` where the
+/// ident matches one of the declared variables is replaced with the
+/// corresponding value.
+/// ```
+/// # use forr::forr;
+/// forr! {$val:expr in [(1, "a", true)] $*
+///     assert_eq!($val, $val);
+/// }
+/// ```
+/// will expand to
+/// ```
+/// assert_eq!(1, 1);
+/// assert_eq!("a", "a");
+/// assert_eq!(true, true);
+/// ```
+///
+/// ### `$:` inner repetition
+///
+/// `$:` allows to have non repeated code surrounding the expansion, mainly
+/// useful for cases where a macro would not be allowed.
+///
+/// ```
+/// # use forr::forr;
+/// # assert!(!
+/// forr! {($pat:expr, $res:expr) in [(0, true), (1, false), (2.., true)] $:
+///     match 1u8 {
+///         $($pat => $res,)*
+///     }
+/// }
+/// # );
+/// ```
+/// Without the inner repetition this would not be possible, as macros are not
+/// allowed as the body of a `match`.
+/// ```compile_fail
+/// # use forr::forr;
+/// # assert!(!
+/// match 1 {
+///    forr! {($pat:expr, $res:expr) in [(0, true), (1, false), (2.., true)] $*
+///        $pat => $res
+///    }
+/// }
+/// # );
+/// ```
+///
+/// # Names
+/// Any valid rust idents including keywords can be used to name variables. Note
+/// that shadowing does not work, i.e. an inner `forr!` needs to use different
+/// names.
+///
+/// # Types
+/// ## `:expr`
+/// As this uses [`TokenParser::next_expression()`] this will allow anything
+/// that matches the `,` rules for expressions i.e. it cannot contain `;` and no
+/// `,` outside turbofishes for Types/Generics (`HashMap::<A, B>`).
+///
+/// ## `:ty`
+/// As this uses [`TokenParser::next_type()`] this will allow anything
+/// that matches the `,` rules for types i.e. it cannot contain `;` and no
+/// `,` outside `<>` for Generics (`HashMap<A, B>`) and unopened closing `>`.
+///
+/// ## `:tt`
+/// Currently matches exactly one [`proc_macro::TokenTree`], but the plan is to extend this to what [`macro_rule!`'s `:tt` matches](https://doc.rust-lang.org/reference/macros-by-example.html#metavariables).
+///
+/// ## `:inner`
+/// The most versatile type, allowing arbitrary tokens wrapped by any bracket
+/// `[`, `{` or `(` ... `)}]`.
+///
+/// ## `:idx`
+/// [Non consuming pattern](#non-consuming-patterns) that will contain the
+/// current index.
 #[manyhow(proc_macro)]
 pub use forr::forr;
+
+mod iff;
+
+/// `if` for macro expansions.
+///
+/// Aims to be an alternative version of
+/// [`#[cfg(...)]`](https://doc.rust-lang.org/reference/conditional-compilation.html#the-cfg-attribute)
+/// able to conditionally enable any rust tokens and being able to, e.g. compare
+/// tokens, but it is not able to be conditional other actual `cfg` or features.
+///
+/// ```
+/// # forr::
+/// iff! { true && false $:
+///     compile_error!("This is not expanded")
+/// }
+/// ```
+/// ```compile_fail
+/// # forr::
+/// iff! { true || false $:
+///     compile_error!("This is expanded")
+/// }
+/// ```
+///
+/// On top of the basic boolean operations (`!`, `&&`, `||`) there are some
+/// functions:
+///
+/// - `empty(<tokens>)` tests if `<tokens>` is empty.
+/// - `equals(<lhs>)(<rhs>)` tests if `<lhs>` is equal to `<rhs>`.
+/// 
+/// ```compile_fail
+/// # use forr::
+/// iff! { empty() $:
+///     compile_error!("This is expanded")
+/// }
+/// ```
+/// ```
+/// # use forr::iff;
+/// iff! { empty(something) $:
+///     compile_error!("This is not expanded")
+/// }
+/// iff! { equals(something)(another thing) $:
+///     compile_error!("Neither is this")
+/// }
+/// ```
+#[manyhow(proc_macro)]
+pub use iff::iff;
