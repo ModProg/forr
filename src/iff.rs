@@ -73,6 +73,26 @@ impl Expression {
             };
 
             lhs.stream().to_string() == rhs.stream().to_string()
+        } else if input.next_keyword("equals_any").is_some() {
+            let Some(lhs) = input.next_parenthesized() else {
+                bail_optional_span!(input, "expected `(...)`");
+            };
+            let Some(rhs) = input.next_bracketed() else {
+                bail_optional_span!(input, "expected `[...]`");
+            };
+
+            let mut input = rhs.stream().parser();
+            while let Some(rhs) = input.next_parenthesized() {
+                if lhs.stream().to_string() == rhs.stream().to_string() {
+                    return Ok(true);
+                }
+                _ = input.next_tt_comma();
+            }
+            _ = input.next_tt_comma();
+            if !input.is_empty() {
+                bail_optional_span!(input, "expected `(...)`");
+            }
+            false
         } else {
             bail_optional_span!(
                 input,
@@ -90,4 +110,8 @@ fn expression() {
     assert!(!Expression::parse_all(quote!(false || true && false)).unwrap());
     assert!(Expression::parse_all(quote!(false || empty() && true)).unwrap());
     assert!(!Expression::parse_all(quote!(false || empty(()) && true)).unwrap());
+    assert!(Expression::parse_all(quote!(equals_any(hello)[(hello), (hi)])).unwrap());
+    assert!(Expression::parse_all(quote!(equals_any(hello)[(hello)(hi)])).unwrap());
+    assert!(Expression::parse_all(quote!(equals_any(hello)[(hello)(hi),])).unwrap());
+    assert!(!Expression::parse_all(quote!(equals_any(hello)[(hi),])).unwrap());
 }

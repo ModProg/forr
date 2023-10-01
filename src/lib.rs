@@ -94,6 +94,8 @@
 //!
 //! - `empty(<tokens>)` tests if `<tokens>` is empty.
 //! - `equals(<lhs>)(<rhs>)` tests if `<lhs>` is equal to `<rhs>`.
+//! - `equals_any(<lhs>)[(<rhs>), (<rhs>), ...]` tests if `<lhs>` is equal to
+//!   any `<rhs>`.
 //!
 //! For more details see [`iff!`].
 
@@ -296,7 +298,9 @@ mod iff;
 ///
 /// - `empty(<tokens>)` tests if `<tokens>` is empty.
 /// - `equals(<lhs>)(<rhs>)` tests if `<lhs>` is equal to `<rhs>`.
-/// 
+/// - `equals_any(<lhs>)[(<rhs>), (<rhs>), ...]` tests if `<lhs>` is equal to
+///   any `<rhs>`.
+///
 /// ```compile_fail
 /// # use forr::
 /// iff! { empty() $:
