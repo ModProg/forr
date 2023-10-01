@@ -1,6 +1,6 @@
 [package]
 name = "forr"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 categories = ["rust-patterns", "development-tools::procedural-macro-helpers"]
 description = "a compile time for loop for code generation"
