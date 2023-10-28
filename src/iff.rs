@@ -7,18 +7,31 @@ use crate::Parser;
 
 struct Expression;
 
-#[allow(clippy::type_complexity)]
-const DOLLAR_COLON: (fn(&TokenTree) -> bool, fn(&TokenTree) -> bool) =
-    (TokenTree::is_dollar, TokenTree::is_colon);
+pub fn step_colon(input: &mut Parser) -> Result<()> {
+    if input
+        .next_if_each((TokenTree::is_dollar, TokenTree::is_colon))
+        .or_else(|| input.next_if_each((TokenTree::is_pound, TokenTree::is_colon)))
+        .is_none()
+    {
+        bail_optional_span!(input, "expected `$:` or `#:`");
+    } else {
+        Ok(())
+    }
+}
+
+pub fn peek_colon(input: &mut Parser) -> bool {
+    input
+        .peek_if_each((TokenTree::is_dollar, TokenTree::is_colon))
+        .or_else(|| input.peek_if_each((TokenTree::is_pound, TokenTree::is_colon)))
+        .is_some()
+}
 
 pub fn iff(input: TokenStream) -> Result {
     let mut input = input.parser();
 
     let expression = Expression::parse(true, &mut input)?;
 
-    if input.next_if_each(DOLLAR_COLON).is_none() {
-        bail_optional_span!(input, "expected $:");
-    }
+    step_colon(&mut input)?;
 
     Ok(expression.then_some(input).into_token_stream())
 }
@@ -32,7 +45,7 @@ impl Expression {
         } else if input.next_tt_and_and().is_some() {
             let rhs = Expression::parse(lhs, input)?;
             llhs && rhs
-        } else if input.is_empty() || input.peek_if_each(DOLLAR_COLON).is_some() {
+        } else if input.is_empty() || peek_colon(input) {
             llhs && lhs
         } else {
             bail_optional_span!(input, "expected `&&` or `||`");

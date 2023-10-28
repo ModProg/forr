@@ -67,6 +67,9 @@
 //! the tokens to iterate and the [body](forr!#body) marked with either `$*` or
 //! `$:`.
 //!
+//! For better support within `macro_rules`, `#` can be used instead of `$`, but
+//! only if the body was started with `#*` or `#:` instead of `$*`/`$#`.
+//!
 //! For more details see [`forr!`].
 //!
 //! # `iff!`
@@ -97,6 +100,8 @@
 //! - `equals_any(<lhs>)[(<rhs>), (<rhs>), ...]` tests if `<lhs>` is equal to
 //!   any `<rhs>`.
 //!
+//! For better support within `macro_rules`, `#:` can be used instead of `$:`.
+//!
 //! For more details see [`iff!`].
 
 use manyhow::manyhow;
@@ -119,7 +124,7 @@ macro_rules! unwrap_or {
 
 macro_rules! bail_optional_span {
     ($parser:expr, $($fmt:tt)*) => {
-        if let Some(token) = $parser.next() {
+        if let Some(token) = $parser.peek() {
             manyhow::bail!(token, "unexpected token: {}", format_args!($($fmt)*));
         }
         manyhow::bail!("unexpected end of macro invocation: {}", format_args!($($fmt)*));
@@ -134,19 +139,22 @@ mod forr;
 ///
 /// The first part of the invocation is the pattern, similar to a normal `for`
 /// loop in rust. Here you can use either a [single
-/// variable](#single-variable-binding) i.e. `$name:type` or a [tuple
-/// binding](#tuple-binding) `($name:type, $nbme:type, ...)`. There can
+/// variable](#single-variable-binding) i.e. `$name:type`/`#name:type` or a
+/// [tuple binding](#tuple-binding) `($name:type, $nbme:type, ...)`. There can
 /// optionally be [non consuming patterns](#non-consuming-patterns) specified
 /// before or after, currently that includes only [`:idx`](#idx).
 ///
 /// This is followed by the keyword `in`, an array literal `[...]` containing
-/// the tokens to iterate and the [body](#body) marked with either `$*` or `$:`.
+/// the tokens to iterate and the [body](#body) marked with either `$*`, `$:`,
+/// `#*`, or `#:`.
 ///
 /// ## Single variable binding
-/// `$` [`name`](#names) `:` [`type`](#types)
+/// `$` or `#` [`name`](#names) `:` [`type`](#types)
 /// ```
 /// # use forr::forr;
 /// forr! { $val:expr in [1, 2 + 4, 20]
+/// # $* assert_eq!($val, $val); }
+/// forr! { #val:expr in [1, 2 + 4, 20]
 /// # $* assert_eq!($val, $val); }
 /// ```
 /// `$val` will be `1`, `2 + 4` and `20`.
@@ -189,22 +197,32 @@ mod forr;
 ///
 /// ## Body
 ///
-/// The body can be in two different modes. When it is initialized with `$*` the
-/// whole body is repeated similar to a normal for loop. Is it started with
-/// `$:`, the body will behave more like macro expansion using `$()*` for
-/// repetition. In both cases there is special handling for [optional
+/// The body can be in two different repetition modes. When it is initialized
+/// with `$*` the whole body is repeated similar to a normal for loop. Is it
+/// started with `$:`, the body will behave more like macro expansion using
+/// `$()*` for repetition. In both cases there is special handling for [optional
 /// values](#optional values) when placed inside `$()?` the innermost such group
 /// is only added if the value is present.
 ///
-/// ### `$*` outer repetition
+/// Additionally they can be started with `#` instead of `$`, i.e., `#*` and
+/// `#:`, this will result in all variable references/repetions having to be
+/// prefixed with `#` instead of `$`.
+///
+/// ### `$*`/`#*` outer repetition
 ///
 /// In the tokens following the `$*` every occurrence of a `$ident` where the
 /// ident matches one of the declared variables is replaced with the
 /// corresponding value.
+///
+/// For `#*`, every occurence of `#ident` will be replaced equivalently.
 /// ```
 /// # use forr::forr;
 /// forr! {$val:expr in [(1, "a", true)] $*
 ///     assert_eq!($val, $val);
+/// }
+/// // or
+/// forr! {#val:expr in [(1, "a", true)] #*
+///     assert_eq!(#val, #val);
 /// }
 /// ```
 /// will expand to
@@ -214,10 +232,10 @@ mod forr;
 /// assert_eq!(true, true);
 /// ```
 ///
-/// ### `$:` inner repetition
+/// ### `$:`/`#:` inner repetition
 ///
-/// `$:` allows to have non repeated code surrounding the expansion, mainly
-/// useful for cases where a macro would not be allowed.
+/// `$:` and `#:` allow to have non repeated code surrounding the expansion,
+/// mainly useful for positions where a macro would not be allowed.
 ///
 /// ```
 /// # use forr::forr;
@@ -225,6 +243,13 @@ mod forr;
 /// forr! {($pat:expr, $res:expr) in [(0, true), (1, false), (2.., true)] $:
 ///     match 1u8 {
 ///         $($pat => $res,)*
+///     }
+/// }
+/// # );
+/// # assert!(!
+/// forr! {(#pat:expr, #res:expr) in [(0, true), (1, false), (2.., true)] #:
+///     match 1u8 {
+///         #(#pat => #res,)*
 ///     }
 /// }
 /// # );
@@ -281,8 +306,12 @@ mod iff;
 /// tokens, but it is not able to be conditional other actual `cfg` or features.
 ///
 /// ```
-/// # forr::
+/// # use forr::iff;
 /// iff! { true && false $:
+///     compile_error!("This is not expanded")
+/// }
+/// // or
+/// iff! { true && false #:
 ///     compile_error!("This is not expanded")
 /// }
 /// ```

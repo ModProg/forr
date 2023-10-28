@@ -6,7 +6,20 @@ use proc_macro2::{token_stream, Group, Ident, Literal, Span, TokenStream, TokenT
 use proc_macro_utils::{Delimited, TokenParser, TokenStream2Ext, TokenTreePunct};
 use quote::{quote, ToTokens};
 
+use crate::iff::step_colon;
 use crate::Parser;
+
+pub fn step_star(input: &mut Parser) -> Result<()> {
+    if input
+        .next_if_each((TokenTree::is_dollar, TokenTree::is_asterix))
+        .or_else(|| input.next_if_each((TokenTree::is_pound, TokenTree::is_asterix)))
+        .is_none()
+    {
+        bail_optional_span!(input, "expected `$*` or `#*`");
+    } else {
+        Ok(())
+    }
+}
 
 pub fn forr(input: TokenStream) -> Result {
     let mut context = Context::default();
@@ -26,35 +39,44 @@ pub fn forr(input: TokenStream) -> Result {
         vars.parse_values(&mut values, &mut context, None)?;
     }
 
+    if input.peek_tt_pound().is_some() {
+        context.prefix = TokenTree::is_pound;
+    }
+
     // $*
-    if input
-        .next_if_each((TokenTree::is_dollar, TokenTree::is_asterix))
-        .is_some()
-    {
+    if step_star(&mut input).is_ok() {
         Ok(replace_loop(input, &context))
-    } else if input
-        .next_if_each((TokenTree::is_dollar, TokenTree::is_colon))
-        .is_some()
-    {
+    } else if step_colon(&mut input).is_ok() {
         replace_outer(input, &context)
     } else if let Some(token) = input.next() {
-        bail!(token, "expected `$*` or `$:`")
+        bail!(token, "expected `$*`, `$:`, `#*`, or `#:`")
     } else {
-        bail!("unexpected end of macro invocation: expected to be followed by `$+` or `$:`")
+        bail!(
+            "unexpected end of macro invocation: expected to be followed by `$*`, `$:`, `#*`, or \
+             `#:`"
+        )
     }
-    // for i in 0..len {
-    //     output.extend(replace_inner(input.clone(), &context, i).0);
-    // }
-    // Ok(output)
-    // Ok(TokenStream::new())
 }
 
-#[derive(Default, Debug)]
+#[derive(Debug)]
 struct Context {
     keys: Vec<Ident>,
     data: Vec<Value>,
     len: usize,
+    prefix: fn(&TokenTree) -> bool,
 }
+
+impl Default for Context {
+    fn default() -> Self {
+        Self {
+            keys: Vec::new(),
+            data: Vec::new(),
+            len: 0,
+            prefix: TokenTree::is_dollar,
+        }
+    }
+}
+
 impl Context {
     fn push_key(&mut self, key: Ident) -> Result<()> {
         assert_eq!(self.len, 0, "can only add keys before pushing values");
@@ -104,11 +126,10 @@ fn replace_outer(input: impl Into<TokenParser>, context: &Context) -> Result {
             )));
             continue;
         }
-        let Some(dollar) = input.next_tt_dollar() else {
+        let Some(prefix) = input.next_if(context.prefix) else {
             output.extend(input.next());
             continue;
         };
-        // doesn't use `peek_n_star` to also match on e.g. `*,` i.e. joint punct
         if input.peek_n_tt_star(1).is_some() {
             if let Some(inner) = input.next_parenthesized() {
                 input.next(); // *
@@ -116,7 +137,7 @@ fn replace_outer(input: impl Into<TokenParser>, context: &Context) -> Result {
                 continue;
             }
         }
-        output.extend(dollar);
+        output.push(prefix);
     }
     Ok(output)
 }
@@ -163,7 +184,7 @@ fn replace_inner(
     let mut output = TokenStream::new();
     let mut tokens = tokens.into();
     while !tokens.is_empty() {
-        if tokens.peek_tt_dollar().is_some() {
+        if tokens.peek_if_each(context.prefix).is_some() {
             if let Some(ident) = tokens.peek_n_ident(1) {
                 if let Some(replacement) = context.get(index, ident) {
                     // $
@@ -325,8 +346,8 @@ impl Vars {
     fn parse_multiple(input: &mut Parser, top_level: bool) -> Result<Vec<Self>> {
         let mut vars = Vec::new();
         while !(input.is_empty() || (top_level && input.peek_keyword("in").is_some())) {
-            // $
-            if input.next_tt_dollar().is_some() {
+            // $ or #
+            if input.next_tt_dollar().is_some() || input.next_tt_pound().is_some() {
                 vars.push(Var::parse(input).map(Self::Single)?);
             } else {
                 unwrap_or!(
