@@ -7,7 +7,7 @@
 //!
 //! Aims to replace single use [`macro_rules!`](https://doc.rust-lang.org/reference/macros-by-example.html) for the purpose to repeating code.
 //!
-//! For example it can reduce an implementation for multiple tuples:
+//! For example, it can reduce an implementation for multiple tuples:
 //! ```
 //! # use forr::forr;
 //! # trait Like { fn like (&self, other: &Self) -> bool; }
@@ -53,15 +53,16 @@
 //!
 //! Granted in this example it is not a lot more complicated, and adding more
 //! tuple variants actually requires less code. But it took me quite a few more
-//! trys getting it to work correctly. (If you don't count me implementing this
+//! tries getting it to work correctly. (If you don't count me implementing this
 //! whole library for the first one.)
 //!
 //! The first part of the invocation is the pattern, similar to a normal `for`
 //! loop in rust. Here you can use either a [single
-//! variable](forr!#single-variable-binding) i.e. `$name:type` or a [tuple
-//! binding](forr!#tuple-binding) `($name:type, $nbme:type, ...)`. There can
-//! optionally be [non consuming patterns](forr!#non-consuming-patterns)
-//! specified, currently that includes only [`:idx`](forr!#idx).
+//! variable](forr!#single-variable-binding) i.e. `$name:type`, a [tuple
+//! binding](forr!#tuple-binding) `($name:type, $nbme:type, ...)`, or a
+//! [function](forr!#functions) `casing($a:s)`. There can optionally be [non
+//! consuming patterns](forr!#non-consuming-patterns) specified, currently that
+//! includes only [`:idx`](forr!#idx).
 //!
 //! This is followed by the keyword `in`, an array literal `[...]` containing
 //! the tokens to iterate and the [body](forr!#body) marked with either `$*` or
@@ -160,15 +161,37 @@ mod forr;
 /// `$val` will be `1`, `2 + 4` and `20`.
 ///
 /// ## Tuple binding
-/// `(` [`$name:type`](#single-variable-binding), ... `)`
+/// `(` [`$name:type`](#single-variable-binding) `,` ... `)`
 /// ```
 /// # use forr::forr;
-/// forr! { ($val:expr, $vbl:ty) in [(1, i32), (Ok(2 + 4), Result<u8, ()>), (20.0, f32)]
+/// forr! { ($val:expr, #vbl:ty) in [(1, i32), (Ok(2 + 4), Result<u8, ()>), (20.0, f32)]
 /// # $* let a: $vbl = $val; assert_eq!(a, $val); }
 /// ```
 /// `$val` will be `1`, `Ok(2 + 4)` and `20.0`.
 ///
 /// `$vbl` will be `i32`, `Result<u8, ()>` and `f32`.
+///
+/// ## Functions
+/// `name` `(` ... `)`
+///
+/// ### `casing($a:C, ...)`
+/// `casing` allows construct identifiers in different cases, it takes [variable
+/// bindings](#single-variable-binding) as arguments, though with a case
+/// specifier instead of type: `s` for `snake_case`, `S` for `SNAKE_CASE`, `c`
+/// for `camelCase`, and `C` for `CamelCase`.
+///
+/// Expects as input the fragments to join to an identifier.
+/// ```
+/// # use forr::forr;
+/// forr! { casing($a:s, $b:S, #c:c, #d:C) in [a b, "c D", e 1, f 0x23]
+/// # $: assert_eq!(stringify!($($a $b $c $d)*), stringify! {
+/// // results in:
+///     a_b    A_B    aB    AB
+///     c_d    C_D    cD    CD
+///     e_1    E_1    e1    E1
+///     f_0x23 F_0X23 f0x23 F0x23
+/// # })}
+/// ```
 ///
 /// ## Non consuming patterns
 ///

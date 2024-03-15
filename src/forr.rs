@@ -1,9 +1,12 @@
+use std::fmt::Display;
 use std::iter;
-use std::ops::BitAndAssign;
+use std::ops::{BitAndAssign, Range};
 
 use manyhow::{bail, error_message, Error, ErrorMessage, JoinToTokensError, Result, SpanRanged};
 use proc_macro2::{token_stream, Group, Ident, Literal, Span, TokenStream, TokenTree};
-use proc_macro_utils::{Delimited, TokenParser, TokenStream2Ext, TokenTreePunct};
+use proc_macro_utils::{
+    Delimited, TokenParser, TokenStream2Ext, TokenTree2Ext, TokenTreeLiteral, TokenTreePunct,
+};
 use quote::{quote, ToTokens};
 
 use crate::iff::step_colon;
@@ -312,10 +315,15 @@ enum Vars {
     Single(Var),
     Plain(Vec<Vars>),
     Tuple(Vec<Vars>, Span),
+    Function {
+        function: Function,
+        span: Range<Span>,
+        optional: bool,
+    },
 }
 
 impl SpanRanged for Vars {
-    fn span_range(&self) -> std::ops::Range<proc_macro2::Span> {
+    fn span_range(&self) -> Range<proc_macro2::Span> {
         match self {
             Vars::Plain(vars) => {
                 vars.first()
@@ -326,6 +334,7 @@ impl SpanRanged for Vars {
             }
             Vars::Tuple(_, span) => span.span_range(),
             Vars::Single(var) => var.span_range(),
+            Vars::Function { span, .. } => span.span_range(),
         }
     }
 }
@@ -336,6 +345,7 @@ impl Vars {
             Vars::Single(var) => var.optional,
             Vars::Plain(vars) => vars.iter().all(Vars::optional),
             Vars::Tuple(..) => false,
+            Vars::Function { optional, .. } => *optional,
         }
     }
 
@@ -349,17 +359,30 @@ impl Vars {
             // $ or #
             if input.next_tt_dollar().is_some() || input.next_tt_pound().is_some() {
                 vars.push(Var::parse(input).map(Self::Single)?);
-            } else {
-                unwrap_or!(
-                    input,
-                    input.next_parenthesized(),
-                    input,
-                    "either `$ident` or (...)"
-                );
+            } else if let Some(input) = input.next_parenthesized() {
                 vars.push(Vars::Tuple(
                     Vars::parse_multiple(&mut input.stream().parser(), false)?,
                     input.span(),
                 ));
+            } else {
+                let span = input.span();
+                unwrap_or!(
+                    name,
+                    input.next_ident(),
+                    input,
+                    "either `$ident`, `(...)` or `casing(...)`"
+                );
+                let mut span = span..input.span();
+                unwrap_or!(args, input.next_parenthesized(), input, "`(...)`");
+
+                let optional = input.next_if(TokenTree::is_question).map(|t| t.span());
+                span.end = optional.unwrap_or(span.end);
+
+                vars.push(Vars::Function {
+                    function: Function::parse(&name, args.stream().parser(), optional)?,
+                    optional: optional.is_some(),
+                    span,
+                });
             }
             if input.is_empty() || (top_level && input.peek_keyword("in").is_some()) {
                 break;
@@ -379,7 +402,7 @@ impl Vars {
         }
         let vars = Self::Plain(vars);
         if vars.optional() {
-            bail!(vars, "binding cannot be optional");
+            bail!(vars, "top level binding cannot be optional");
         }
         if vars.idx() {
             bail!(
@@ -419,6 +442,7 @@ impl Vars {
                 name,
                 typ,
                 optional,
+                ..
             }) => {
                 if input.is_empty() {
                     if *optional {
@@ -438,6 +462,31 @@ impl Vars {
                     }
                 }
             }
+            Vars::Function {
+                function,
+                span,
+                optional,
+            } => {
+                if input.is_empty() {
+                    if *optional {
+                        for _ in 0..function.len() {
+                            context.push(Value::Optional(None));
+                        }
+                    } else {
+                        bail!(
+                            error_message!(group_span, "missing mandatory values for `{function}`")
+                                .join(error_message!(span, "`{function}` defined mandatory here"))
+                        );
+                    }
+                } else {
+                    for value in function.parse_value(input)? {
+                        context.push(Value::some(value, *optional));
+                    }
+                    if !input.is_empty() {
+                        unwrap_or!(_, input.next_tt_comma(), input, "`,`");
+                    }
+                }
+            }
         }
         Ok(())
     }
@@ -448,6 +497,7 @@ impl Vars {
             Vars::Tuple(vars, _) | Vars::Plain(vars) => {
                 Box::new(vars.iter().flat_map(Vars::idents))
             }
+            Vars::Function { function, .. } => Box::new(function.idents()),
         };
         box_
     }
@@ -458,20 +508,23 @@ struct Var {
     name: Ident,
     typ: Typ,
     optional: bool,
+    span: Range<Span>,
 }
 
 impl SpanRanged for Var {
-    fn span_range(&self) -> std::ops::Range<Span> {
-        todo!()
+    fn span_range(&self) -> Range<Span> {
+        self.span.clone()
     }
 }
 
 impl Var {
     fn parse(input: &mut Parser) -> Result<Self> {
+        let span = input.span();
         // $ident
         unwrap_or!(name, input.next_ident(), input, "ident");
         // $ident:
         unwrap_or!(_, input.next_tt_colon(), input, "`:`");
+        let mut span = span..input.span();
         // $ident:typ
         unwrap_or!(
             typ,
@@ -479,7 +532,9 @@ impl Var {
             input,
             "`expr`, `ty`, `tt` or `inner`"
         );
+        let q_span = input.span();
         let optional = if let Some(question) = input.next_tt_question() {
+            span.end = q_span;
             if typ == "tt" {
                 bail!(
                     quote!(#typ #question),
@@ -497,6 +552,7 @@ impl Var {
             name,
             typ,
             optional,
+            span,
         })
     }
 }
@@ -524,6 +580,139 @@ impl Value {
     }
 }
 
+enum Function {
+    Casing(Vec<(Ident, Casing)>),
+}
+
+impl Display for Function {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Function::Casing(v) => write!(
+                f,
+                "casing({})",
+                v.iter()
+                    .map(|(i, c)| format!("{i}:{c:?}"))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ),
+        }
+    }
+}
+
+impl Function {
+    fn len(&self) -> usize {
+        match self {
+            Function::Casing(v) => v.len(),
+        }
+    }
+
+    fn parse_value(&self, input: &mut TokenParser) -> Result<Vec<TokenStream>> {
+        match self {
+            Function::Casing(variables) => {
+                let mut span = None;
+                let parts: Vec<_> = input
+                    .next_while(|token| token.is_ident() || token.is_literal())
+                    .ok_or_else(|| {
+                        error_message!(input.peek(), "expected at least one ident or literal")
+                    })?
+                    .into_iter()
+                    .inspect(|t| span = Some(t.span()))
+                    .map(|t| match t {
+                        TokenTree::Ident(ident) => ident.to_string(),
+                        TokenTree::Literal(lit) => lit.string().unwrap_or_else(|| lit.to_string()),
+                        _ => unreachable!(),
+                    })
+                    .flat_map(|s| {
+                        s.to_lowercase()
+                            .split_whitespace()
+                            .map(str::to_string)
+                            .collect::<Vec<String>>()
+                    })
+                    .collect();
+                let span = span.expect("next_while should ensure at least one value");
+                Ok(variables
+                    .iter()
+                    .map(|(_, casing)| match *casing {
+                        Casing::s => parts.join("_"),
+                        Casing::S => parts.join("_").to_uppercase(),
+                        casing => {
+                            let mut parts = parts.iter();
+                            (casing == Casing::c)
+                                .then(|| parts.next().cloned().unwrap_or_default())
+                                .unwrap_or_default()
+                                + &parts
+                                    .map(|s| {
+                                        let mut s = s.chars();
+                                        s.next()
+                                            .map(|c| c.to_uppercase().to_string())
+                                            .unwrap_or_default()
+                                            + s.as_str()
+                                    })
+                                    .collect::<String>()
+                        }
+                    })
+                    .map(|s| Ident::new(&s, span).to_token_stream())
+                    .collect())
+            }
+        }
+    }
+
+    fn idents(&self) -> impl Iterator<Item = Ident> + '_ {
+        match self {
+            Function::Casing(c) => c.iter().map(|i| i.0.clone()),
+        }
+    }
+
+    fn parse(name: &Ident, mut args: TokenParser, _optional: Option<Span>) -> Result<Self> {
+        match name.to_string().as_str() {
+            "casing" => {
+                let mut casings = Vec::new();
+                while !args.is_empty() {
+                    unwrap_or!(
+                        _,
+                        args.next_tt_dollar().or_else(|| args.next_tt_pound()),
+                        args,
+                        "`$`"
+                    );
+                    unwrap_or!(name, args.next_ident(), args, "ident");
+                    unwrap_or!(_, args.next_tt_colon(), args, ":");
+                    unwrap_or!(
+                        casing,
+                        args.next_ident(),
+                        args,
+                        "either `c`, `C`, `s` or `S`"
+                    );
+                    let casing = match casing.to_string().as_str() {
+                        "c" => Casing::c,
+                        "C" => Casing::C,
+                        "s" => Casing::s,
+                        "S" => Casing::S,
+                        other => bail!(
+                            name,
+                            "unknown case `{other}`, expected either `c`, `C`, `s` or `S`"
+                        ),
+                    };
+                    casings.push((name, casing));
+                    if !args.is_empty() {
+                        unwrap_or!(_, args.next_tt_comma(), args, "`,`");
+                    }
+                }
+                Ok(Self::Casing(casings))
+            }
+            other => bail!(name, "unknown function `{other}`, expected `casing`"),
+        }
+    }
+}
+
+#[allow(non_camel_case_types)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Casing {
+    s,
+    S,
+    c,
+    C,
+}
+
 #[test]
 fn expansions() {
     use proc_macro_utils::assert_expansion;
@@ -539,4 +728,21 @@ fn expansions() {
         forr! {$a:expr, $b:expr?, $i:idx in [1a, 1b, 2a]$: ! $($i:$($a)? $()? $(+ $b)? $()* )* !}.unwrap(),
         {! 0:$(1a)? $()? + 1b $()* 1:$(2a)? $()? $()* !}
     );
+}
+
+#[test]
+fn casing() {
+    use proc_macro_utils::assert_expansion;
+    assert_expansion!(
+        forr! {casing($s:s, $S:S, $c:c, $C:C) in [a b, "a b", a 1, a 0x23]$* $s $S $c $C }.unwrap(),
+        {
+            a_b    A_B    aB    AB
+            a_b    A_B    aB    AB
+            a_1    A_1    a1    A1
+            a_0x23 A_0X23 a0x23 A0x23
+        }
+    );
+    assert_expansion!(forr! {casing($s:s,) in [a b] $* $s}.unwrap(), { a_b });
+    assert_expansion!(forr! {($a:expr, casing($s:s)?) in [(a, b c), (d)] $* $a $s}.unwrap(), {a b_c d});
+
 }
