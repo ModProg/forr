@@ -15,7 +15,7 @@ documentation = "https://docs.rs/forr"
 proc-macro = true
 
 [dependencies]
-manyhow = { version = "0.6", default-features = false }
+manyhow = { version = "0.11", default-features = false, features = ["macros"] }
 proc-macro-utils = "0.9.1"
 proc-macro2 = "1.0.30"
 quote = "1"
