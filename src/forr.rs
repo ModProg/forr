@@ -246,6 +246,7 @@ enum Typ {
     Tt,
     Inner,
     Idx,
+    Ident,
 }
 
 impl Typ {
@@ -273,6 +274,10 @@ impl Typ {
             Typ::Idx => {
                 Ok(TokenTree::Literal(Literal::usize_unsuffixed(index)).into_token_stream())
             }
+            Typ::Ident => input
+                .next_ident()
+                .map(ToTokens::into_token_stream)
+                .ok_or_else(|| error_message!(input.peek(), "expected ident")),
         }
     }
 
@@ -295,7 +300,7 @@ impl TryFrom<Ident> for Typ {
             "inner" => return Ok(Self::Inner),
             "idx" => return Ok(Self::Idx),
             "block" => "`tt`",
-            "ident" => "`tt`, `ty` or `expr`",
+            "ident" => return Ok(Self::Ident),
             "path" => "`ty`",
             "lifetime" | "literal" => "`ty` or `expr`",
             "vis" => "`ty?` or `expr?`",
@@ -744,5 +749,4 @@ fn casing() {
     );
     assert_expansion!(forr! {casing($s:s,) in [a b] $* $s}.unwrap(), { a_b });
     assert_expansion!(forr! {($a:expr, casing($s:s)?) in [(a, b c), (d)] $* $a $s}.unwrap(), {a b_c d});
-
 }
