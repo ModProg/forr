@@ -47,6 +47,13 @@ fn enum_test() {
     assert_eq!(c, Enum::C);
 }
 
+#[test]
+fn idents() {
+    let idents = forr!{ $ident:ident in idents(i, 11) $: 
+        stringify!($($ident)*)};
+    assert_eq!(idents, "i0 i1 i2 i3 i4 i5 i6 i7 i8 i9 i10");
+}
+
 mod pound {
     use std::fmt::Display;
     use std::str::FromStr;

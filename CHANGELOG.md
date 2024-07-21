@@ -6,7 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
-- `ident` type in `forr!` 
+- `ident`, `block`, `path`, `lifetime` and `literal` type in `forr!` 
+- `idents(prefix, count)` function to `forr!`
+
+### Changed
+- **BREAKING** fully removed support for top level optional variables (they were supposed to be disallowed before but worked due to a bug)
 
 ## [0.2.3] - 2024-03-15
 ### Added

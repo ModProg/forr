@@ -227,8 +227,8 @@ mod forr;
 /// values](#optional values) when placed inside `$()?` the innermost such group
 /// is only added if the value is present.
 ///
-/// Additionally they can be started with `#` instead of `$`, i.e., `#*` and
-/// `#:`, this will result in all variable references/repetions having to be
+/// Additionally, they can be started with `#` instead of `$`, i.e., `#*` and
+/// `#:`, this will result in all variable references/repetitions having to be
 /// prefixed with `#` instead of `$`.
 ///
 /// ### `$*`/`#*` outer repetition
@@ -237,7 +237,7 @@ mod forr;
 /// ident matches one of the declared variables is replaced with the
 /// corresponding value.
 ///
-/// For `#*`, every occurence of `#ident` will be replaced equivalently.
+/// For `#*`, every occurrence of `#ident` will be replaced equivalently.
 /// ```
 /// # use forr::forr;
 /// forr! {$val:expr in [(1, "a", true)] $*
@@ -257,7 +257,7 @@ mod forr;
 ///
 /// ### `$:`/`#:` inner repetition
 ///
-/// `$:` and `#:` allow to have non repeated code surrounding the expansion,
+/// `$:` and `#:` allow having non repeated code surrounding the expansion,
 /// mainly useful for positions where a macro would not be allowed.
 ///
 /// ```
