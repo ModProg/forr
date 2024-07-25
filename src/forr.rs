@@ -1,5 +1,5 @@
 use std::iter;
-use std::ops::BitAndAssign;
+use std::ops::{BitAndAssign, Bound, RangeBounds};
 
 use manyhow::{bail, error_message, ErrorMessage, JoinToTokensError, Result};
 use proc_macro2::{token_stream, Group, Ident, Literal, Span, TokenStream, TokenTree};
@@ -24,17 +24,28 @@ pub fn forr(
         body,
     }: MacroInput,
 ) -> Result {
-    let mut context = Context::new(vars.idents(), prefix)?;
-
     let values = match values {
         Values::List(values) => values,
         Values::Function(function) => function.expand(),
     };
 
     let mut values = values.parser();
-    while !values.is_empty() {
-        context.new_row();
-        vars.parse_values(&mut values, &mut context, None)?;
+
+    let mut context;
+    if let Some((tuple, meta)) = vars.split_tuple() {
+        let mut inner = Context::new([tuple.0.name.clone()], prefix)?;
+        let vars = Vars::Single(tuple.0);
+        while !values.is_empty() {
+            inner.new_row();
+            vars.parse_values(&mut values, &mut inner, None)?;
+        }
+        context = inner.tuples(tuple.1, &meta)?;
+    } else {
+        context = Context::new(vars.idents(), prefix)?;
+        while !values.is_empty() {
+            context.new_row();
+            vars.parse_values(&mut values, &mut context, None)?;
+        }
     }
 
     match loop_type {
@@ -66,6 +77,31 @@ impl Context {
             len: 0,
             prefix,
         })
+    }
+
+    fn tuples(&self, bounds: impl RangeBounds<usize>, meta: &Vars) -> Result<Context> {
+        let &[name] = &self.keys.as_slice() else { unreachable!() };
+        let mut it = Context::new(iter::once(name.clone()).chain(meta.idents()), self.prefix)?;
+        let start = match bounds.start_bound() {
+            Bound::Included(start) => *start,
+            Bound::Excluded(start) => *start + 1,
+            Bound::Unbounded => 0,
+        };
+        let end = match bounds.end_bound() {
+            Bound::Included(end) => *end + 1,
+            Bound::Excluded(end) => *end,
+            Bound::Unbounded => self.data.len() + 1,
+        };
+        for len in start..end {
+            let chunk = self.data[..len].iter().map(|c| match c {
+                Value::Optional(None) => quote!(),
+                Value::Optional(Some(token)) | Value::Required(token) => quote!(#token,),
+            });
+            it.new_row();
+            it.push(Value::Required(quote!(#(#chunk)*)));
+            meta.parse_values(&mut quote!().parser(), &mut it, None)?;
+        }
+        Ok(it)
     }
 }
 
@@ -384,6 +420,7 @@ impl VarsFunction {
     fn len(&self) -> usize {
         match self {
             Self::Casing(v) => v.len(),
+            Self::Tuples(..) => unreachable!(),
         }
     }
 
@@ -435,12 +472,14 @@ impl VarsFunction {
                     .map(|s| Ident::new(&s, span).to_token_stream())
                     .collect())
             }
+            Self::Tuples(..) => unreachable!("tuples only supported at root level"),
         }
     }
 
-    fn idents(&self) -> impl Iterator<Item = Ident> + '_ {
+    fn idents(&self) -> Box<dyn Iterator<Item = Ident> + '_> {
         match self {
-            Self::Casing(c) => c.iter().map(|i| i.0.clone()),
+            Self::Casing(c) => Box::new(c.iter().map(|i| i.0.clone())),
+            Self::Tuples(..) => unreachable!(),
         }
     }
 }
@@ -499,4 +538,14 @@ fn casing() {
 #[test]
 fn idents() {
     assert_expansion!({$a:ident in idents(a, 2) $* $a}, {a0 a1});
+}
+
+#[test]
+fn tuples() {
+    assert_expansion!({tuples($a:ident) in [a, b, c] $* [$a]}, {[] [a,] [a, b,] [a, b, c,]});
+    assert_expansion!({tuples($a:ident, 2..=3) in [a, b, c] $* [$a]}, {[a, b,] [a, b, c,]});
+    assert_expansion!({tuples($a:ident, 1..3) in [a, b, c] $* [$a]}, {[a,] [a, b,]});
+    assert_expansion!({tuples($a:ident, ..2) in [a, b, c] $* [$a]}, {[] [a,]});
+    assert_expansion!({tuples($a:ident, 0..) in [a, b, c] $* [$a]}, {[] [a,] [a, b,] [a, b, c,]});
+    assert_expansion!({tuples($a:ident), $i:idx in [a, b, c] $* [$a]:$i}, {[]:0 [a,]:1 [a, b,]:2 [a, b, c,]:3});
 }

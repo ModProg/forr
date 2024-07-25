@@ -1,9 +1,10 @@
-use std::ops::Range;
+use std::ops::{Bound, Range};
 
 use manyhow::{bail, SpanRanged};
 use proc_macro2::{Span, TokenTree};
 use syn::ext::IdentExt;
 use syn::parse::{Parse, ParseStream};
+use syn::spanned::Spanned;
 use syn::token::{Bracket, Paren};
 use syn::{bracketed, custom_keyword, parenthesized, Ident, LitInt, Token};
 
@@ -11,7 +12,7 @@ use super::input::*;
 
 impl Parse for MacroInput {
     fn parse(input: ParseStream) -> syn::Result<Self> {
-        let vars: Vars = input.parse()?;
+        let vars = Vars::parse(input, true)?;
         if let Vars::Plain(vars) = &vars {
             if vars.is_empty() {
                 return Err(input.error(
@@ -78,8 +79,8 @@ impl Parse for LoopType {
     }
 }
 
-impl Parse for Vars {
-    fn parse(input: ParseStream) -> syn::Result<Self> {
+impl Vars {
+    fn parse(input: ParseStream, first: bool) -> syn::Result<Self> {
         let mut vars = Vec::new();
         loop {
             let var;
@@ -89,12 +90,27 @@ impl Parse for Vars {
             } else if la.peek(Paren) {
                 let content;
                 parenthesized!(content in input);
-                var = Vars::Tuple(content.parse()?);
+                var = Vars::Tuple(Box::new(Vars::parse(&content, false)?));
             } else if VarsFunction::peek(&la) {
+                let name: Ident = input.fork().parse()?;
+                let function = VarsFunction::parse(input)?;
+                let optional = input.parse::<Token![?]>();
+
+                if let (Ok(optional), VarsFunction::Tuples(..)) = (&optional, &function) {
+                    bail!(
+                        name.span()..optional.span(),
+                        "`tuples(...)` cannot be optional"
+                    )
+                }
+
+                if matches!(function, VarsFunction::Tuples(..)) && !first {
+                    bail!(name, "tuples can only be used at the top level")
+                }
+
                 var = Vars::Function {
-                    name: input.fork().parse()?,
-                    function: input.parse()?,
-                    optional: <Token![?]>::parse(input).is_ok(),
+                    name,
+                    function,
+                    optional: optional.is_ok(),
                 };
             } else {
                 return Err(la.error());
@@ -225,7 +241,47 @@ impl Parse for VarsFunction {
                 }
                 Ok(Self::Casing(casings))
             }
-            _ => unreachable!("should be peeked"),
+            "tuples" => Ok(Self::Tuples(args.parse()?, {
+                if args.parse::<Token![,]>().is_ok() {
+                    let start = args
+                        .parse::<Option<LitInt>>()?
+                        .as_ref()
+                        .map(LitInt::base10_parse)
+                        .transpose()?;
+
+                    let la = args.lookahead1();
+                    let inclusive = if la.peek(Token![..=]) {
+                        args.parse::<Token![..=]>()?;
+                        true
+                    } else if la.peek(Token![..]) {
+                        args.parse::<Token![..]>()?;
+                        false
+                    } else if !args.is_empty() || start.is_some() {
+                        return Err(la.error());
+                    } else {
+                        false
+                    };
+
+                    let end = args
+                        .parse::<Option<LitInt>>()?
+                        .as_ref()
+                        .map(LitInt::base10_parse)
+                        .transpose()?;
+                    (
+                        start.map_or(Bound::Unbounded, Bound::Included),
+                        end.map_or(Bound::Unbounded, |end| {
+                            if inclusive {
+                                Bound::Included(end)
+                            } else {
+                                Bound::Excluded(end)
+                            }
+                        }),
+                    )
+                } else {
+                    (Bound::Unbounded, Bound::Unbounded)
+                }
+            })),
+            name => unreachable!("{name} should not be peeked"),
         }
     }
 }
@@ -233,7 +289,8 @@ impl Parse for VarsFunction {
 impl VarsFunction {
     fn peek(la: &syn::parse::Lookahead1) -> bool {
         custom_keyword!(casing);
-        la.peek(casing)
+        custom_keyword!(tuples);
+        la.peek(casing) || la.peek(tuples)
     }
 }
 

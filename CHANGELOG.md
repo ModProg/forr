@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `ident`, `block`, `path`, `lifetime` and `literal` type in `forr!` 
 - `idents(prefix, count)` function to `forr!`
+- `tuples($name:type, from..to)` function to `forr!`
 
 ### Changed
 - **BREAKING** fully removed support for top level optional variables (they were supposed to be disallowed before but worked due to a bug)

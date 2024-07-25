@@ -60,16 +60,21 @@
 //! loop in rust. Here you can use either a [single
 //! variable](forr!#single-variable-binding) i.e. `$name:type`, a [tuple
 //! binding](forr!#tuple-binding) `($name:type, $nbme:type, ...)`, or a
-//! [function](forr!#functions) `casing($a:s)`. There can optionally be [non
-//! consuming patterns](forr!#non-consuming-patterns) specified, currently that
-//! includes only [`:idx`](forr!#idx).
+//! [function](forr!#pattern-functions) [`casing($a:s,
+//! ...)`](forr!#casingac-`)/[`tuples($t:type)`](forr!#tuplesnametype-fromto).
+//! There can optionally be [non consuming
+//! patterns](forr!#non-consuming-patterns) specified, currently that includes
+//! only [`:idx`](forr!#idx).
 //!
-//! This is followed by the keyword `in`, an array literal `[...]` containing
-//! the tokens to iterate and the [body](forr!#body) marked with either `$*` or
-//! `$:`.
+//! This is followed by the keyword `in` and either an array literal `[...]`
+//! containing the tokens to iterate or the [function
+//! `idents(prefix,n)`](forr!#identsprefix-n).
+//!
+//! The [body](forr!#body) marked is started with either `$*`, `#*`, `$:` or
+//! `#:`.
 //!
 //! For better support within `macro_rules`, `#` can be used instead of `$`, but
-//! only if the body was started with `#*` or `#:` instead of `$*`/`$#`.
+//! only if the body was started with `#*` or `#:` instead of `$*`/`$:`.
 //!
 //! For more details see [`forr!`].
 //!
@@ -140,14 +145,22 @@ mod forr;
 ///
 /// The first part of the invocation is the pattern, similar to a normal `for`
 /// loop in rust. Here you can use either a [single
-/// variable](#single-variable-binding) i.e. `$name:type`/`#name:type` or a
-/// [tuple binding](#tuple-binding) `($name:type, $nbme:type, ...)`. There can
-/// optionally be [non consuming patterns](#non-consuming-patterns) specified
-/// before or after, currently that includes only [`:idx`](#idx).
+/// variable](#single-variable-binding) i.e. `$name:type`, a [tuple
+/// binding](#tuple-binding) `($name:type, $nbme:type, ...)`, or a
+/// [function](#pattern-functions) [`casing($a:s,
+/// ...)`](#casingac-`)/[`tuples($t:type)`](#tuplesnametype-fromto). There
+/// can optionally be [non consuming patterns](#non-consuming-patterns)
+/// specified, currently that includes only [`:idx`](#idx).
 ///
-/// This is followed by the keyword `in`, an array literal `[...]` containing
-/// the tokens to iterate and the [body](#body) marked with either `$*`, `$:`,
-/// `#*`, or `#:`.
+/// This is followed by the keyword `in` and either an array literal `[...]`
+/// containing the tokens to iterate or the [function
+/// `idents(prefix,n)`](#identsprefix-n).
+///
+/// The [body](#body) marked is started with either `$*`, `#*`, `$:` or
+/// `#:`.
+///
+/// For better support within `macro_rules`, `#` can be used instead of `$`, but
+/// only if the body was started with `#*` or `#:` instead of `$*`/`$:`.
 ///
 /// ## Single variable binding
 /// `$` or `#` [`name`](#names) `:` [`type`](#types)
@@ -171,7 +184,7 @@ mod forr;
 ///
 /// `$vbl` will be `i32`, `Result<u8, ()>` and `f32`.
 ///
-/// ## Functions
+/// ## Pattern Functions
 /// `name` `(` ... `)`
 ///
 /// ### `casing($a:C, ...)`
@@ -193,6 +206,38 @@ mod forr;
 /// # })}
 /// ```
 ///
+/// ### `tuples($name:type, from..to)`
+/// `tuples` allows creating sub-slices of the input, starting from the first
+/// element, i.e. (1), (1, 2), (1, 2, 3), ...
+///
+/// It must be the only consuming pattern, i.e. only
+/// [non consuming patterns](#non-consuming-patterns) like [`idx`](#idx) can be
+/// combined with it e.g. `forr!{ tuples($a:ident), $idx:idx`.
+///
+/// Optionally a second argument can specify which tuple sizes should be
+/// included using a range expression `..to`, `from..to`, `from..=including_to`, `from..`
+/// ...
+///
+/// ```
+/// # forr::
+/// forr! { tuples($tuples:ident), $idx:idx in [a, b, c]
+/// # $: assert_eq!(stringify!($($idx $tuples)*), stringify! {
+/// // results in:
+///     0
+///     1   a,
+///     2   a, b,
+///     3   a, b, c,
+/// # })}
+/// // restricted to a range
+/// # forr::
+/// forr! { tuples($tuples:ident, 2..=4), $idx:idx in [a, b, c, d, e]
+/// # $: assert_eq!(stringify!($($idx $tuples)*), stringify! {
+/// // results in:
+///     0   a, b,
+///     1   a, b, c,
+///     2   a, b, c, d,
+/// # })}
+/// ```
 /// ## Non consuming patterns
 ///
 /// Non consuming patterns can be specified before or after the consuming
@@ -217,6 +262,21 @@ mod forr;
 /// `$i` will be `0` and `1`
 ///
 /// `$vbl` will be `i32`
+///
+/// ## Value Functions
+/// `name` `(` ... `)`
+///
+/// ### `idents(prefix, n)`
+/// `idents` allows to generate `n` identifiers with the given prefix.
+///
+/// ```
+/// # forr::
+/// forr! { $ident:ident in idents(_, 5)
+/// # $: assert_eq!(stringify!($($ident)*), stringify! {
+/// // results in:
+///     _0 _1 _2 _3 _4
+/// # })}
+/// ```
 ///
 /// ## Body
 ///

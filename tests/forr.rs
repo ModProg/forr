@@ -49,9 +49,17 @@ fn enum_test() {
 
 #[test]
 fn idents() {
-    let idents = forr!{ $ident:ident in idents(i, 11) $: 
-        stringify!($($ident)*)};
+    let idents = forr! { $ident:ident in idents(i, 11) $:
+    stringify!($($ident)*)};
     assert_eq!(idents, "i0 i1 i2 i3 i4 i5 i6 i7 i8 i9 i10");
+}
+
+#[test]
+fn tuples() {
+    let idents = forr! { tuples($idents:ident, 2..4) in idents(i, 3) $:
+        stringify!($(($idents))*)
+    };
+    assert_eq!(idents, "(i0, i1,) (i0, i1, i2,)");
 }
 
 mod pound {
